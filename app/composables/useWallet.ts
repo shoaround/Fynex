@@ -12,6 +12,7 @@ import {
   getCallsStatus,
   type Config,
 } from "@wagmi/core";
+import { base } from "viem/chains";
 import type Privy from "@privy-io/js-sdk-core";
 
 export function useWallet() {
@@ -158,11 +159,12 @@ export function useWallet() {
 
   const sendTx = async (tx: { to: `0x${string}`; data: `0x${string}`; value: bigint }) => {
     const hash = await sendTransaction(config, {
+      chainId: base.id,
       to: tx.to,
       data: tx.data,
       value: tx.value,
     });
-    await waitForTransactionReceipt(config, { hash });
+    await waitForTransactionReceipt(config, { hash, chainId: base.id });
     return hash;
   };
 
@@ -174,6 +176,7 @@ export function useWallet() {
     // Try EIP-5792 batch calls (supported by Coinbase Smart Wallet, etc.)
     try {
       const result = await sendCalls(config, {
+        chainId: base.id,
         calls: txs.map((tx) => ({
           to: tx.to,
           data: tx.data,
