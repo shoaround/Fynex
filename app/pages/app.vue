@@ -255,6 +255,7 @@ const handleInvest = async (payload: {
       decimals: payload.token.decimals,
       symbol: payload.token.symbol,
     });
+    await fetchAll(address.value);
   } finally {
     isDepositing.value = false;
   }
@@ -265,6 +266,7 @@ const handleWithdrawAll = async () => {
   isWithdrawing.value = true;
   try {
     await withdrawAll(address.value, sendBatchTx);
+    await fetchAll(address.value);
   } finally {
     isWithdrawing.value = false;
   }
@@ -275,6 +277,7 @@ const handleWithdrawPartial = async (selections: { vaultId: string; percentage: 
   isWithdrawing.value = true;
   try {
     await withdrawPartial(address.value, selections, sendBatchTx);
+    await fetchAll(address.value);
   } finally {
     isWithdrawing.value = false;
   }
@@ -285,6 +288,7 @@ const handleClaimRewards = async () => {
   isClaiming.value = true;
   try {
     await claimMerklRewards(address.value, sendBatchTx);
+    await fetchAll(address.value);
   } finally {
     isClaiming.value = false;
   }
