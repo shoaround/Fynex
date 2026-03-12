@@ -4,8 +4,9 @@ const router = useRouter();
 const { handleOAuthCallback } = useWallet();
 
 onMounted(async () => {
-  const code = route.query.code as string;
-  const state = route.query.state as string;
+  // Privy OAuth redirects use privy_oauth_code and privy_oauth_state params
+  const code = (route.query.privy_oauth_code ?? route.query.code) as string;
+  const state = (route.query.privy_oauth_state ?? route.query.state) as string;
 
   if (code && state) {
     try {

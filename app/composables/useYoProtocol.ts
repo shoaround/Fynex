@@ -293,8 +293,14 @@ export function useYoProtocol() {
       await sendBatchTx(batch);
 
       txStatus.value = "Stash created!";
+      // Delay before refetch — give indexer time to process the new block
+      await new Promise((r) => setTimeout(r, 3000));
       await fetchVaultData(userAddress);
-      setTimeout(() => { if (txStatus.value === "Stash created!") txStatus.value = null; }, 4000);
+      // Second refetch for PNL data which may take longer to index
+      setTimeout(async () => {
+        await fetchVaultData(userAddress);
+        if (txStatus.value === "Stash created!") txStatus.value = null;
+      }, 8000);
     } catch (e: any) {
       console.error("Deposit failed:", e);
       txStatus.value = `Error: ${e.shortMessage || e.message}`;
@@ -347,8 +353,20 @@ export function useYoProtocol() {
       await sendBatchTx(batch);
 
       txStatus.value = "All withdrawals complete!";
+      await new Promise((r) => setTimeout(r, 3000));
       await fetchVaultData(userAddress);
-      setTimeout(() => { if (txStatus.value === "All withdrawals complete!") txStatus.value = null; }, 4000);
+
+      // Check if any positions remain (partial failure)
+      const remaining = vaults.value.filter((v) => v.position && v.position.shares > 0n);
+      if (remaining.length > 0) {
+        const labels = remaining.map((v) => v.label).join(", ");
+        txStatus.value = `Warning: ${labels} still has a remaining balance. You may need to withdraw again.`;
+      } else {
+        setTimeout(async () => {
+          await fetchVaultData(userAddress);
+          if (txStatus.value === "All withdrawals complete!") txStatus.value = null;
+        }, 8000);
+      }
     } catch (e: any) {
       console.error("Withdraw failed:", e);
       txStatus.value = `Error: ${e.shortMessage || e.message}`;
@@ -472,8 +490,23 @@ export function useYoProtocol() {
       await sendBatchTx(batch);
 
       txStatus.value = "Withdrawal complete!";
+      await new Promise((r) => setTimeout(r, 3000));
       await fetchVaultData(userAddress);
-      setTimeout(() => { if (txStatus.value === "Withdrawal complete!") txStatus.value = null; }, 4000);
+
+      // Verify: check if targeted vaults still have remaining shares
+      const targetedIds = selections.filter((s) => s.percentage === 100).map((s) => s.vaultId);
+      const remaining = vaults.value.filter(
+        (v) => targetedIds.includes(v.vaultId) && v.position && v.position.shares > 0n
+      );
+      if (remaining.length > 0) {
+        const labels = remaining.map((v) => v.label).join(", ");
+        txStatus.value = `Warning: ${labels} still has a remaining balance. You may need to withdraw again.`;
+      } else {
+        setTimeout(async () => {
+          await fetchVaultData(userAddress);
+          if (txStatus.value === "Withdrawal complete!") txStatus.value = null;
+        }, 8000);
+      }
     } catch (e: any) {
       console.error("Withdraw failed:", e);
       txStatus.value = `Error: ${e.shortMessage || e.message}`;

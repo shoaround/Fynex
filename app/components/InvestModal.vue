@@ -249,8 +249,8 @@ const handleInvest = () => {
 };
 
 const close = () => {
-  // Don't allow closing during active transaction
-  if (step.value === 4 && props.isDepositing && !txError.value) return;
+  // Don't allow closing during active transaction (but allow if success or error)
+  if (step.value === 4 && props.isDepositing && !txError.value && !txSuccess.value) return;
   emit("update:open", false);
   setTimeout(() => {
     step.value = 1;

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Dialog, DialogContent, DialogTitle } from "~/components/ui/dialog";
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from "~/components/ui/dialog";
 import { Button } from "~/components/ui/button";
 import { VisuallyHidden } from "reka-ui";
 import type { VaultInfo } from "~/composables/useYoProtocol";
@@ -110,8 +110,11 @@ const formatTokenAmount = (v: number) => {
 
 <template>
   <Dialog :open="open" @update:open="(v: boolean) => v ? null : close()">
-    <DialogContent class="sm:max-w-md p-0 overflow-hidden max-h-[85vh] flex flex-col" aria-describedby="withdraw-modal-desc">
-      <VisuallyHidden><DialogTitle>Withdraw</DialogTitle></VisuallyHidden>
+    <DialogContent class="sm:max-w-md p-0 overflow-hidden max-h-[85vh] flex flex-col">
+      <VisuallyHidden>
+        <DialogTitle>Withdraw</DialogTitle>
+        <DialogDescription>Choose how much to withdraw from your positions.</DialogDescription>
+      </VisuallyHidden>
 
       <!-- ═══ Select step ═══ -->
       <div v-if="step === 'select'" class="flex-1 overflow-y-auto p-5 space-y-4">
@@ -120,7 +123,7 @@ const formatTokenAmount = (v: number) => {
             <Icon name="lucide:arrow-up-right" class="w-6 h-6 text-destructive" />
           </div>
           <h3 class="text-lg font-bold">Withdraw Stash</h3>
-          <p id="withdraw-modal-desc" class="text-sm text-muted-foreground">
+          <p class="text-sm text-muted-foreground">
             Choose how much to withdraw from your positions.
           </p>
         </div>

@@ -14,18 +14,20 @@ import {
 } from "@wagmi/core";
 import { base } from "viem/chains";
 import type Privy from "@privy-io/js-sdk-core";
+import { getUserEmbeddedEthereumWallet } from "@privy-io/js-sdk-core";
 
 export function useWallet() {
   const { $wagmiConfig, $privy } = useNuxtApp();
   const config = $wagmiConfig as Config;
   const privy = $privy as InstanceType<typeof Privy>;
 
-  const address = ref<`0x${string}` | undefined>();
-  const isConnected = ref(false);
-  const isConnecting = ref(false);
-  const isAuthenticated = ref(false);
-  const privyUser = ref<any>(null);
-  const ready = ref(false);
+  // Use useState so state is shared across pages/components
+  const address = useState<`0x${string}` | undefined>("wallet:address", () => undefined);
+  const isConnected = useState("wallet:isConnected", () => false);
+  const isConnecting = useState("wallet:isConnecting", () => false);
+  const isAuthenticated = useState("wallet:isAuthenticated", () => false);
+  const privyUser = useState<any>("wallet:privyUser", () => null);
+  const ready = useState("wallet:ready", () => false);
 
   const syncAccount = () => {
     const account = getAccount(config);
@@ -41,6 +43,27 @@ export function useWallet() {
     watchAccount(config, {
       onChange: () => syncAccount(),
     });
+
+    // Restore Privy session if one exists (e.g., after OAuth redirect)
+    if (!isAuthenticated.value) {
+      try {
+        const { user } = await privy.user.get();
+        if (user) {
+          privyUser.value = user;
+          isAuthenticated.value = true;
+          // Ensure embedded wallet exists and set address for social login users
+          if (!address.value) {
+            await ensureEmbeddedWallet(user);
+          }
+        }
+      } catch {
+        // No active session
+      }
+    } else if (!address.value && privyUser.value) {
+      // Already authenticated but no address (e.g., navigated from callback)
+      await ensureEmbeddedWallet(privyUser.value);
+    }
+
     ready.value = true;
   });
 
@@ -68,8 +91,14 @@ export function useWallet() {
 
       if (!address.value) throw new Error("Wallet not connected");
 
-      // Authenticate with Privy via SIWE
-      await authenticateWithSiwe();
+      // Authenticate with Privy via SIWE (non-fatal — wallet stays connected even if Privy fails)
+      try {
+        await authenticateWithSiwe();
+      } catch (siweErr: any) {
+        console.warn("Privy SIWE auth failed, continuing with wallet only:", siweErr.message);
+        isAuthenticated.value = false;
+        privyUser.value = null;
+      }
     } catch (err: any) {
       if (getAccount(config).isConnected) {
         await disconnect(config);
@@ -80,6 +109,20 @@ export function useWallet() {
       throw err;
     } finally {
       isConnecting.value = false;
+    }
+  };
+
+  // Ensure embedded wallet exists for social/email login users and set address
+  const ensureEmbeddedWallet = async (user: any) => {
+    let embeddedWallet = getUserEmbeddedEthereumWallet(user);
+    if (!embeddedWallet) {
+      // Create an embedded wallet for this user
+      const result = await privy.embeddedWallet.create({});
+      privyUser.value = result.user;
+      embeddedWallet = getUserEmbeddedEthereumWallet(result.user);
+    }
+    if (embeddedWallet?.address) {
+      address.value = embeddedWallet.address as `0x${string}`;
     }
   };
 
@@ -116,6 +159,7 @@ export function useWallet() {
       const authUser = await privy.auth.email.loginWithCode(email, code);
       privyUser.value = authUser.user;
       isAuthenticated.value = true;
+      await ensureEmbeddedWallet(authUser.user);
     } finally {
       isConnecting.value = false;
     }
@@ -138,6 +182,7 @@ export function useWallet() {
       const authUser = await privy.auth.oauth.loginWithCode(code, state);
       privyUser.value = authUser.user;
       isAuthenticated.value = true;
+      await ensureEmbeddedWallet(authUser.user);
     } finally {
       isConnecting.value = false;
     }
