@@ -4,7 +4,38 @@ export default defineNuxtConfig({
   compatibilityDate: "2025-01-01",
   future: { compatibilityVersion: 4 },
 
-  modules: ["shadcn-nuxt", "@nuxt/fonts", "@nuxt/icon", "@vueuse/motion/nuxt"],
+  modules: ["shadcn-nuxt", "@nuxt/fonts", "@nuxt/icon", "@vueuse/motion/nuxt", "@vite-pwa/nuxt"],
+
+  pwa: {
+    registerType: "autoUpdate",
+    manifest: {
+      name: "Fynex",
+      short_name: "Fynex",
+      description: "Simple investing, diversified returns. Pick a portfolio and start earning.",
+      theme_color: "#0d1117",
+      background_color: "#0d1117",
+      display: "standalone",
+      orientation: "portrait",
+      start_url: "/app",
+      icons: [
+        { src: "/logo.png", sizes: "400x400", type: "image/png", purpose: "any" },
+        { src: "/icon.png", sizes: "1024x1024", type: "image/png", purpose: "any" },
+        { src: "/icon.png", sizes: "1024x1024", type: "image/png", purpose: "maskable" },
+      ],
+    },
+    workbox: {
+      navigateFallback: "/",
+      globPatterns: ["**/*.{js,css,html,png,svg,ico,woff2}"],
+    },
+    client: {
+      installPrompt: true,
+    },
+    devOptions: {
+      enabled: true,
+      type: "module",
+      suppressWarnings: true,
+    },
+  },
 
   shadcn: {
     prefix: "",
@@ -24,7 +55,7 @@ export default defineNuxtConfig({
   css: ["~/assets/css/main.css"],
 
   vite: {
-    plugins: [tailwindcss()],
+    plugins: [tailwindcss() as any],
   },
 
   app: {

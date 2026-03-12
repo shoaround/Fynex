@@ -3,6 +3,7 @@ import { type VaultAllocation, VAULT_DEFS } from "~/config/fund";
 import { formatUnits } from "viem";
 import { Button } from "~/components/ui/button";
 import { Badge } from "~/components/ui/badge";
+import { toast } from "vue-sonner";
 
 const {
   ready,
@@ -39,6 +40,8 @@ const {
   fetchUserHistory,
 } = useYoProtocol();
 
+const { exportStashPdf } = useExportPdf();
+
 const showLoginModal = ref(false);
 const loginModalRef = ref<{
   setOtpSent: (v: boolean) => void;
@@ -54,6 +57,14 @@ const showWithdrawModal = ref(false);
 const isClaiming = ref(false);
 const showHistory = ref(false);
 
+// Track if user ever had positions — prevents "Create Stash" flash during refetch
+// Only goes true when positions detected; resets to false when loading finishes with no positions
+const hadPositions = ref(false);
+watch(hasPositions, (v) => { if (v) hadPositions.value = true; });
+watch(loading, (isLoading) => {
+  if (!isLoading && !hasPositions.value) hadPositions.value = false;
+});
+
 // Fetch vault data on mount and when address changes
 const fetchAll = async (addr?: `0x${string}`) => {
   await fetchVaultData(addr);
@@ -61,6 +72,8 @@ const fetchAll = async (addr?: `0x${string}`) => {
   if (addr) {
     fetchMerklRewards(addr);
     fetchUserHistory(addr);
+    // Delayed re-fetch: indexer may need extra time to process new tx
+    setTimeout(() => fetchUserHistory(addr), 8000);
   }
 };
 
@@ -293,6 +306,16 @@ const handleClaimRewards = async () => {
     isClaiming.value = false;
   }
 };
+
+// Show claim-related txStatus as toasts (deposit/withdraw handled in their modals)
+watch(txStatus, (status) => {
+  if (!status || isDepositing.value || isWithdrawing.value) return;
+  if (status.startsWith("Error:")) {
+    toast.error("Claim Failed", { description: status.replace("Error: ", "") });
+  } else if (status === "Rewards claimed!") {
+    toast.success("Rewards Claimed!", { description: "Your rewards have been sent to your wallet." });
+  }
+});
 </script>
 
 <template>
@@ -366,8 +389,8 @@ const handleClaimRewards = async () => {
         <!-- LEFT COLUMN: Stash + Rewards (sticky on desktop) -->
         <div class="lg:col-span-2 space-y-6 lg:order-1 order-2">
           <template v-if="isConnected || isAuthenticated">
-            <!-- Invest CTA (only when no stash yet and done loading) -->
-            <div v-if="!hasPositions && !loading" class="relative rounded-2xl border border-primary/20 bg-gradient-to-br from-primary/10 via-primary/5 to-transparent p-5 overflow-hidden">
+            <!-- Invest CTA (only when no stash yet, done loading, and never had positions this session) -->
+            <div v-if="!hasPositions && !loading && !hadPositions" class="relative rounded-2xl border border-primary/20 bg-gradient-to-br from-primary/10 via-primary/5 to-transparent p-5 overflow-hidden">
               <div class="absolute -top-16 -right-16 w-48 h-48 rounded-full bg-primary/10 blur-3xl" />
               <div class="relative space-y-3">
                 <div class="space-y-1.5">
@@ -402,11 +425,11 @@ const handleClaimRewards = async () => {
             />
 
             <!-- Your Stash -->
-            <div v-if="isConnected && (hasPositions || loading)" class="space-y-3">
+            <div v-if="isConnected && (hasPositions || loading || hadPositions)" class="space-y-3">
               <h2 class="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Your Stash</h2>
 
               <!-- Skeleton stash -->
-              <div v-if="loading && !hasPositions" class="rounded-2xl border border-border bg-card/80 backdrop-blur-sm overflow-hidden animate-pulse">
+              <div v-if="!hasPositions" class="rounded-2xl border border-border bg-card/80 backdrop-blur-sm overflow-hidden animate-pulse">
                 <div class="px-5 pt-5 pb-4 space-y-3">
                   <div class="flex items-center justify-between">
                     <div class="space-y-2">
@@ -471,6 +494,20 @@ const handleClaimRewards = async () => {
                       >
                         <Icon name="lucide:arrow-up-right" class="w-3.5 h-3.5 mr-1" />
                         {{ isWithdrawing ? "..." : "Withdraw" }}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        class="h-8 w-8 text-muted-foreground"
+                        @click="exportStashPdf({
+                          address: address!,
+                          totalUsd: stashTotalUsd,
+                          totalPnlUsd: totalPnlUsd,
+                          allocations: stashAllocations,
+                          history: userHistory,
+                        })"
+                      >
+                        <Icon name="lucide:download" class="w-3.5 h-3.5" />
                       </Button>
                     </div>
                   </div>
@@ -576,10 +613,6 @@ const handleClaimRewards = async () => {
               </div>
             </div>
 
-            <!-- Transaction Status (claim only, deposit/withdraw show in modals) -->
-            <div v-if="txStatus && !isDepositing && !isWithdrawing && !showInvestModal && !showWithdrawModal" class="rounded-xl border border-border bg-card/80 backdrop-blur-sm px-4 py-3">
-              <p class="text-sm text-muted-foreground">{{ txStatus }}</p>
-            </div>
           </template>
 
           <!-- Not signed in prompt (left column) -->

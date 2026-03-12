@@ -2,10 +2,14 @@
 import {
   Dialog,
   DialogContent,
+  DialogClose,
 } from "~/components/ui/dialog";
+import { DialogTitle, DialogDescription } from "reka-ui";
+import { VisuallyHidden } from "reka-ui";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { Badge } from "~/components/ui/badge";
+import { toast } from "vue-sonner";
 import {
   FUND_PRESETS,
   VAULT_DEFS,
@@ -53,24 +57,26 @@ const emit = defineEmits<{
 type Step = 1 | 2 | 3 | 4;
 const step = ref<Step>(1);
 
-// Watch txStatus to detect completion or error
-const txError = ref<string | null>(null);
-const txSuccess = ref(false);
-
+// Watch txStatus to detect completion or error → show toast
 watch(() => props.txStatus, (status) => {
   if (!status) return;
   if (status.startsWith("Error:")) {
-    txError.value = status.replace("Error: ", "");
+    toast.error("Transaction Failed", { description: status.replace("Error: ", "") });
+    step.value = 3;
   } else if (status === "Stash created!") {
-    txSuccess.value = true;
+    toast.success("Stash Created!", { description: "Your deposit has been confirmed." });
+    emit("update:open", false);
+    resetState();
   }
 });
 
-watch(() => props.isDepositing, (depositing, prev) => {
-  if (prev && !depositing && txSuccess.value) {
-    close();
-  }
-});
+const resetState = () => {
+  setTimeout(() => {
+    step.value = 1;
+    investAmount.value = "";
+    tokenSearch.value = "";
+  }, 200);
+};
 
 // ── Step 1: Portfolio ──
 type FundMode = "preset" | "custom";
@@ -237,8 +243,6 @@ const goToStep = (s: Step) => {
 
 const handleInvest = () => {
   if (!selectedToken.value || !investAmount.value) return;
-  txError.value = null;
-  txSuccess.value = false;
   step.value = 4;
   emit("invest", {
     allocations: activeAllocations.value,
@@ -248,17 +252,11 @@ const handleInvest = () => {
   });
 };
 
-const close = () => {
-  // Don't allow closing during active transaction (but allow if success or error)
-  if (step.value === 4 && props.isDepositing && !txError.value && !txSuccess.value) return;
-  emit("update:open", false);
-  setTimeout(() => {
-    step.value = 1;
-    investAmount.value = "";
-    tokenSearch.value = "";
-    txError.value = null;
-    txSuccess.value = false;
-  }, 200);
+const handleOpenChange = (v: boolean) => {
+  // Block close during active processing
+  if (!v && step.value === 4 && props.isDepositing) return;
+  emit("update:open", v);
+  if (!v) resetState();
 };
 
 const formatUsd = (v: number) =>
@@ -277,15 +275,15 @@ const vaultColors: Record<string, string> = {
 };
 
 const stepLabels = ["Strategy", "Token", "Amount"];
-const retryInvest = () => {
-  txError.value = null;
-  step.value = 3;
-};
 </script>
 
 <template>
-  <Dialog :open="open" @update:open="(v: boolean) => v ? null : close()">
+  <Dialog :open="open" @update:open="handleOpenChange">
     <DialogContent class="sm:max-w-[540px] p-0 overflow-hidden max-h-[85vh] flex flex-col">
+      <VisuallyHidden>
+        <DialogTitle>Create Stash</DialogTitle>
+        <DialogDescription>Pick a strategy, choose a token, and invest.</DialogDescription>
+      </VisuallyHidden>
 
       <!-- Top: Step navigation circles -->
       <div v-if="step < 4" class="shrink-0 flex items-center justify-center gap-8 py-5 px-6 border-b border-border bg-card/50">
@@ -593,43 +591,14 @@ const retryInvest = () => {
 
       <!-- ═══ Step 4: Processing ═══ -->
       <div v-else-if="step === 4" class="flex-1 flex flex-col items-center justify-center p-8 space-y-5">
-        <!-- Success -->
-        <template v-if="txSuccess">
-          <div class="w-16 h-16 rounded-full bg-green-500/15 flex items-center justify-center">
-            <Icon name="lucide:check-circle-2" class="w-8 h-8 text-green-400" />
-          </div>
-          <div class="text-center space-y-1">
-            <h3 class="text-lg font-bold">Stash Created!</h3>
-            <p class="text-sm text-muted-foreground">Your deposit has been confirmed.</p>
-          </div>
-        </template>
-
-        <!-- Error -->
-        <template v-else-if="txError">
-          <div class="w-16 h-16 rounded-full bg-destructive/15 flex items-center justify-center">
-            <Icon name="lucide:x-circle" class="w-8 h-8 text-destructive" />
-          </div>
-          <div class="text-center space-y-1">
-            <h3 class="text-lg font-bold">Transaction Failed</h3>
-            <p class="text-sm text-muted-foreground max-w-xs">{{ txError }}</p>
-          </div>
-          <div class="flex gap-2">
-            <Button variant="outline" size="sm" @click="close">Close</Button>
-            <Button size="sm" @click="retryInvest">Try Again</Button>
-          </div>
-        </template>
-
-        <!-- Processing -->
-        <template v-else>
-          <div class="w-16 h-16 rounded-full bg-primary/15 flex items-center justify-center">
-            <Icon name="lucide:loader-2" class="w-8 h-8 text-primary animate-spin" />
-          </div>
-          <div class="text-center space-y-1">
-            <h3 class="text-lg font-bold">Processing</h3>
-            <p class="text-sm text-muted-foreground">{{ txStatus || 'Preparing transactions...' }}</p>
-          </div>
-          <p class="text-xs text-muted-foreground/60">Please confirm in your wallet when prompted</p>
-        </template>
+        <div class="w-16 h-16 rounded-full bg-primary/15 flex items-center justify-center">
+          <Icon name="lucide:loader-2" class="w-8 h-8 text-primary animate-spin" />
+        </div>
+        <div class="text-center space-y-1">
+          <h3 class="text-lg font-bold">Processing</h3>
+          <p class="text-sm text-muted-foreground">{{ txStatus || 'Preparing transactions...' }}</p>
+        </div>
+        <p class="text-xs text-muted-foreground/60">Please confirm in your wallet when prompted</p>
       </div>
 
       <!-- ═══ Footer ═══ -->

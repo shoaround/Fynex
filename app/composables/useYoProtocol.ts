@@ -40,40 +40,34 @@ export function useYoProtocol() {
   const fetchVaultData = async (userAddress?: `0x${string}`) => {
     loading.value = true;
     try {
-      // Fetch prices first (separate API, no RPC)
-      const priceMap = await yo.getPrices().catch(() => ({} as Record<string, number>));
+      // Fetch prices and all vaults in parallel
+      const [priceMap, ...vaultResults] = await Promise.all([
+        yo.getPrices().catch(() => ({} as Record<string, number>)),
+        ...VAULT_DEFS.map(async (def) => {
+          const [snapshot, position, performance] = await Promise.all([
+            yo.getVaultSnapshot(def.address).catch((e) => {
+              console.error(`Snapshot error ${def.label}:`, e);
+              return null;
+            }),
+            userAddress
+              ? yo.getUserPosition(def.address, userAddress).catch((e) => {
+                  console.error(`Position error ${def.label}:`, e);
+                  return null;
+                })
+              : Promise.resolve(null),
+            userAddress
+              ? yo.getUserPerformance(def.address, userAddress).catch((e) => {
+                  console.error(`Performance error ${def.label}:`, e);
+                  return null;
+                })
+              : Promise.resolve(null),
+          ]);
+          return { ...def, snapshot, position, performance } as VaultInfo;
+        }),
+      ]);
+
       prices.value = priceMap;
-
-      // Fetch vaults sequentially to avoid RPC rate limits
-      const data: VaultInfo[] = [];
-      for (const def of VAULT_DEFS) {
-        let snapshot: VaultSnapshot | null = null;
-        let position: UserVaultPosition | null = null;
-        let performance: VaultPerf | null = null;
-
-        try {
-          snapshot = await yo.getVaultSnapshot(def.address);
-        } catch (e) {
-          console.error(`Snapshot error ${def.label}:`, e);
-        }
-
-        if (userAddress) {
-          try {
-            position = await yo.getUserPosition(def.address, userAddress);
-          } catch (e) {
-            console.error(`Position error ${def.label}:`, e);
-          }
-
-          try {
-            performance = await yo.getUserPerformance(def.address, userAddress);
-          } catch (e) {
-            console.error(`Performance error ${def.label}:`, e);
-          }
-        }
-
-        data.push({ ...def, snapshot, position, performance });
-      }
-      vaults.value = data;
+      vaults.value = vaultResults;
     } finally {
       loading.value = false;
     }
@@ -385,14 +379,20 @@ export function useYoProtocol() {
   const sharePriceHistory = ref<Record<string, SharePriceHistoryPoint[]>>({});
 
   const fetchSharePriceHistory = async () => {
-    for (const def of VAULT_DEFS) {
-      try {
-        const history = await yo.getSharePriceHistory(def.address);
-        sharePriceHistory.value[def.vaultId] = history;
-      } catch (e) {
-        console.error(`Share price history error ${def.label}:`, e);
-      }
-    }
+    const results = await Promise.all(
+      VAULT_DEFS.map(async (def) => {
+        try {
+          const history = await yo.getSharePriceHistory(def.address);
+          return { vaultId: def.vaultId, history };
+        } catch (e) {
+          console.error(`Share price history error ${def.label}:`, e);
+          return { vaultId: def.vaultId, history: [] as SharePriceHistoryPoint[] };
+        }
+      })
+    );
+    const map: Record<string, SharePriceHistoryPoint[]> = {};
+    for (const r of results) map[r.vaultId] = r.history;
+    sharePriceHistory.value = map;
   };
 
   // ── Merkl rewards ──
@@ -430,17 +430,18 @@ export function useYoProtocol() {
   const userHistory = ref<(UserHistoryItem & { vaultLabel: string; vaultId: string })[]>([]);
 
   const fetchUserHistory = async (userAddress: `0x${string}`) => {
-    const items: (UserHistoryItem & { vaultLabel: string; vaultId: string })[] = [];
-    for (const def of VAULT_DEFS) {
-      try {
-        const history = await yo.getUserHistory(def.address, userAddress, 10);
-        for (const item of history) {
-          items.push({ ...item, vaultLabel: def.label, vaultId: def.vaultId });
+    const results = await Promise.all(
+      VAULT_DEFS.map(async (def) => {
+        try {
+          const history = await yo.getUserHistory(def.address, userAddress, 10);
+          return history.map((item) => ({ ...item, vaultLabel: def.label, vaultId: def.vaultId }));
+        } catch (e) {
+          console.error(`History error ${def.label}:`, e);
+          return [];
         }
-      } catch (e) {
-        console.error(`History error ${def.label}:`, e);
-      }
-    }
+      })
+    );
+    const items = results.flat();
     items.sort((a, b) => b.blockTimestamp - a.blockTimestamp);
     userHistory.value = items.slice(0, 20);
   };

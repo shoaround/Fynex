@@ -1,9 +1,8 @@
 <script setup lang="ts">
-import { Dialog, DialogContent, DialogTitle, DialogDescription } from "~/components/ui/dialog";
+import { Dialog, DialogContent } from "~/components/ui/dialog";
+import { DialogTitle, DialogDescription, VisuallyHidden } from "reka-ui";
 import { Button } from "~/components/ui/button";
-import { VisuallyHidden } from "reka-ui";
-import type { VaultInfo } from "~/composables/useYoProtocol";
-import { formatUnits } from "viem";
+import { toast } from "vue-sonner";
 
 type StashAlloc = {
   vaultId: string;
@@ -32,8 +31,6 @@ const emit = defineEmits<{
 type Step = "select" | "processing";
 const step = ref<Step>("select");
 const mode = ref<"all" | "partial">("all");
-const txError = ref<string | null>(null);
-const txSuccess = ref(false);
 
 // Partial withdraw sliders (0-100 per vault)
 const sliders = ref<Record<string, number>>({});
@@ -42,8 +39,6 @@ watch(() => props.open, (v) => {
   if (v) {
     step.value = "select";
     mode.value = "all";
-    txError.value = null;
-    txSuccess.value = false;
     const s: Record<string, number> = {};
     for (const a of props.stashAllocations) s[a.vaultId] = 100;
     sliders.value = s;
@@ -53,15 +48,14 @@ watch(() => props.open, (v) => {
 watch(() => props.txStatus, (status) => {
   if (!status) return;
   if (status.startsWith("Error:")) {
-    txError.value = status.replace("Error: ", "");
+    toast.error("Withdrawal Failed", { description: status.replace("Error: ", "") });
+    step.value = "select";
+  } else if (status.startsWith("Warning:")) {
+    toast.warning("Partial Withdrawal", { description: status.replace("Warning: ", "") });
+    emit("update:open", false);
   } else if (status === "All withdrawals complete!" || status === "Withdrawal complete!") {
-    txSuccess.value = true;
-  }
-});
-
-watch(() => props.isWithdrawing, (w, prev) => {
-  if (prev && !w && txSuccess.value) {
-    close();
+    toast.success("Withdrawal Complete!", { description: "Your tokens have been returned to your wallet." });
+    emit("update:open", false);
   }
 });
 
@@ -78,8 +72,6 @@ const hasPartialSelection = computed(() =>
 );
 
 const confirm = () => {
-  txError.value = null;
-  txSuccess.value = false;
   step.value = "processing";
   if (mode.value === "all") {
     emit("withdrawAll");
@@ -92,9 +84,10 @@ const confirm = () => {
   }
 };
 
-const close = () => {
-  if (step.value === "processing" && props.isWithdrawing && !txError.value) return;
-  emit("update:open", false);
+const handleOpenChange = (v: boolean) => {
+  // Block close during active processing
+  if (!v && step.value === "processing" && props.isWithdrawing) return;
+  emit("update:open", v);
 };
 
 const formatUsd = (v: number) =>
@@ -109,7 +102,7 @@ const formatTokenAmount = (v: number) => {
 </script>
 
 <template>
-  <Dialog :open="open" @update:open="(v: boolean) => v ? null : close()">
+  <Dialog :open="open" @update:open="handleOpenChange">
     <DialogContent class="sm:max-w-md p-0 overflow-hidden max-h-[85vh] flex flex-col">
       <VisuallyHidden>
         <DialogTitle>Withdraw</DialogTitle>
@@ -194,7 +187,7 @@ const formatTokenAmount = (v: number) => {
 
         <!-- Actions -->
         <div class="flex gap-2">
-          <Button variant="outline" class="flex-1" @click="close">Cancel</Button>
+          <Button variant="outline" class="flex-1" @click="emit('update:open', false)">Cancel</Button>
           <Button
             variant="destructive"
             class="flex-1"
@@ -208,43 +201,14 @@ const formatTokenAmount = (v: number) => {
 
       <!-- ═══ Processing step ═══ -->
       <div v-else class="flex-1 flex flex-col items-center justify-center p-8 space-y-5">
-        <!-- Success -->
-        <template v-if="txSuccess">
-          <div class="w-16 h-16 rounded-full bg-green-500/15 flex items-center justify-center">
-            <Icon name="lucide:check-circle-2" class="w-8 h-8 text-green-400" />
-          </div>
-          <div class="text-center space-y-1">
-            <h3 class="text-lg font-bold">Withdrawal Complete!</h3>
-            <p class="text-sm text-muted-foreground">Your tokens have been returned to your wallet.</p>
-          </div>
-        </template>
-
-        <!-- Error -->
-        <template v-else-if="txError">
-          <div class="w-16 h-16 rounded-full bg-destructive/15 flex items-center justify-center">
-            <Icon name="lucide:x-circle" class="w-8 h-8 text-destructive" />
-          </div>
-          <div class="text-center space-y-1">
-            <h3 class="text-lg font-bold">Withdrawal Failed</h3>
-            <p class="text-sm text-muted-foreground max-w-xs">{{ txError }}</p>
-          </div>
-          <div class="flex gap-2">
-            <Button variant="outline" size="sm" @click="close">Close</Button>
-            <Button size="sm" @click="step = 'select'">Try Again</Button>
-          </div>
-        </template>
-
-        <!-- Processing -->
-        <template v-else>
-          <div class="w-16 h-16 rounded-full bg-primary/15 flex items-center justify-center">
-            <Icon name="lucide:loader-2" class="w-8 h-8 text-primary animate-spin" />
-          </div>
-          <div class="text-center space-y-1">
-            <h3 class="text-lg font-bold">Processing</h3>
-            <p class="text-sm text-muted-foreground">{{ txStatus || 'Preparing transactions...' }}</p>
-          </div>
-          <p class="text-xs text-muted-foreground/60">Please confirm in your wallet when prompted</p>
-        </template>
+        <div class="w-16 h-16 rounded-full bg-primary/15 flex items-center justify-center">
+          <Icon name="lucide:loader-2" class="w-8 h-8 text-primary animate-spin" />
+        </div>
+        <div class="text-center space-y-1">
+          <h3 class="text-lg font-bold">Processing</h3>
+          <p class="text-sm text-muted-foreground">{{ txStatus || 'Preparing transactions...' }}</p>
+        </div>
+        <p class="text-xs text-muted-foreground/60">Please confirm in your wallet when prompted</p>
       </div>
     </DialogContent>
   </Dialog>
